@@ -1,0 +1,16 @@
+[package]
+name = "piano-simple"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+eframe = "0.31"
+egui = "0.31"
+rand = "0.8"
+
+[features]
+midi = ["dep:midir"]
+
+[dependencies.midir]
+version = "0.8"
+optional = true
