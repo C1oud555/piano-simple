@@ -3,7 +3,7 @@ use rand::Rng;
 use crate::exercises::Exercise;
 use crate::input::NoteEvent;
 use crate::theory::note::Note;
-use crate::ui::piano::{KeyState, PianoKeyboard};
+use crate::ui::piano::{KeyState, KeyboardRange, PianoKeyboard};
 use crate::ui::staff::{Clef, Staff};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +40,7 @@ impl SightReadExercise {
             state: QuestionState::Waiting,
             total: 0,
             correct: 0,
-            keyboard: PianoKeyboard::new(48, 3),
+            keyboard: PianoKeyboard::new(KeyboardRange::new(48, 76)),
             staff: Staff::new(Clef::Treble),
             wrong_note: None,
         };
@@ -92,9 +92,11 @@ impl Exercise for SightReadExercise {
         }
     }
 
-    fn render(&mut self, ui: &mut egui::Ui) {
+    fn render(&mut self, ui: &mut egui::Ui) -> Option<NoteEvent> {
         let avail_h = ui.available_height();
         let piano_h = 170.0;
+
+        let mut out = None;
 
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
@@ -169,13 +171,11 @@ impl Exercise for SightReadExercise {
 
             ui.add_space(6.0);
 
-            self.keyboard.draw(ui).map(|midi| {
-                if self.state == QuestionState::Waiting {
-                    self.check_answer(midi);
-                } else {
-                    self.next_question();
-                }
-            });
+            if let Some(midi) = self.keyboard.draw(ui) {
+                out = Some(NoteEvent { midi_note: midi, velocity: 100 });
+            }
         });
+
+        out
     }
 }

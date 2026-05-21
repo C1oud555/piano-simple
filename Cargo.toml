@@ -7,6 +7,7 @@ edition = "2024"
 eframe = "0.31"
 egui = "0.31"
 rand = "0.8"
+rodio = "0.19"
 
 [features]
 midi = ["dep:midir"]

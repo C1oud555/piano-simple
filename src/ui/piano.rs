@@ -1,13 +1,33 @@
 use egui::{self, Color32, Rect, Sense, Stroke, StrokeKind, Vec2, pos2};
+use crate::theory::note::{Note, NoteName};
 
-const WHITE_WIDTH: f32 = 40.0;
 const WHITE_HEIGHT: f32 = 130.0;
-const BLACK_WIDTH: f32 = 26.0;
-const BLACK_HEIGHT: f32 = 80.0;
 
-const WHITE_OFFSETS: [u8; 7] = [0, 2, 4, 5, 7, 9, 11];
-const BLACK_OFFSETS: [u8; 5] = [1, 3, 6, 8, 10];
-const BLACK_CENTERS: [f32; 5] = [1.0, 2.0, 4.0, 5.0, 6.0];
+#[derive(Debug, Clone, Copy)]
+pub struct KeyboardRange {
+    pub start: u8,
+    pub end: u8,
+}
+
+impl KeyboardRange {
+    pub fn new(start: u8, end: u8) -> Self {
+        Self { start, end }
+    }
+
+    pub fn white_count(&self) -> usize {
+        (self.start..=self.end)
+            .filter(|m| !NoteName::from_semitone(*m).is_sharp())
+            .count()
+    }
+
+    pub fn label(&self) -> String {
+        format!("{} keys ({}–{})",
+            self.end.saturating_sub(self.start) as usize + 1,
+            Note::from_midi(self.start),
+            Note::from_midi(self.end),
+        )
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyState {
@@ -18,8 +38,7 @@ pub enum KeyState {
 }
 
 pub struct PianoKeyboard {
-    pub start_note: u8,
-    pub num_octaves: usize,
+    range: KeyboardRange,
     key_states: [KeyState; 128],
 }
 
@@ -38,12 +57,20 @@ fn midi_to_key_label(midi: u8) -> Option<&'static str> {
 }
 
 impl PianoKeyboard {
-    pub fn new(start_note: u8, num_octaves: usize) -> Self {
+    pub fn new(range: KeyboardRange) -> Self {
         Self {
-            start_note,
-            num_octaves,
+            range,
             key_states: [KeyState::Normal; 128],
         }
+    }
+
+    pub fn range(&self) -> &KeyboardRange {
+        &self.range
+    }
+
+    pub fn set_range(&mut self, range: KeyboardRange) {
+        self.range = range;
+        self.reset_states();
     }
 
     pub fn set_key_state(&mut self, midi: u8, state: KeyState) {
@@ -57,114 +84,114 @@ impl PianoKeyboard {
     }
 
     pub fn draw(&mut self, ui: &mut egui::Ui) -> Option<u8> {
-        let total_width = self.num_octaves as f32 * 7.0 * WHITE_WIDTH;
+        let w = ui.available_width().max(100.0);
+        let white_count = self.range.white_count() as f32;
+        if white_count == 0.0 {
+            return None;
+        }
+        let white_w = w / white_count;
+        let black_w = white_w * 0.625;
+        let black_h = WHITE_HEIGHT * 0.635;
+
         let (response, painter) = ui.allocate_painter(
-            Vec2::new(total_width, WHITE_HEIGHT),
+            Vec2::new(w, WHITE_HEIGHT),
             Sense::click(),
         );
-
         let origin = response.rect.min;
-        let mut clicked_note = None;
+        let mut clicked = None;
 
+        // click detection: black keys first
         if response.clicked() {
             if let Some(pos) = response.interact_pointer_pos() {
-                'black: for octave in 0..self.num_octaves {
-                    let base = self.start_note + (octave * 12) as u8;
-                    for (&offset, &cx) in BLACK_OFFSETS.iter().zip(BLACK_CENTERS.iter()) {
-                        let midi = base + offset;
-                        let kx = origin.x
-                            + octave as f32 * 7.0 * WHITE_WIDTH
-                            + cx * WHITE_WIDTH
-                            - BLACK_WIDTH / 2.0;
-                        let key_rect = Rect::from_min_size(
-                            pos2(kx, origin.y),
-                            Vec2::new(BLACK_WIDTH, BLACK_HEIGHT),
+                for midi in self.range.start..=self.range.end {
+                    if !NoteName::from_semitone(midi).is_sharp() {
+                        continue;
+                    }
+                    if let Some(bx) = self.black_abs_x(midi, white_w) {
+                        let r = Rect::from_min_size(
+                            pos2(bx, origin.y),
+                            Vec2::new(black_w, black_h),
                         );
-                        if key_rect.contains(pos) {
-                            clicked_note = Some(midi);
-                            break 'black;
+                        if r.contains(pos) {
+                            clicked = Some(midi);
+                            break;
                         }
                     }
                 }
 
-                if clicked_note.is_none() {
-                    'white: for octave in 0..self.num_octaves {
-                        let base = self.start_note + (octave * 12) as u8;
-                        for (wi, &offset) in WHITE_OFFSETS.iter().enumerate() {
-                            let midi = base + offset;
-                            let kx = origin.x
-                                + (octave as f32 * 7.0 + wi as f32) * WHITE_WIDTH;
-                            let key_rect = Rect::from_min_size(
-                                pos2(kx, origin.y),
-                                Vec2::new(WHITE_WIDTH, WHITE_HEIGHT),
-                            );
-                            if key_rect.contains(pos) {
-                                clicked_note = Some(midi);
-                                break 'white;
-                            }
+                if clicked.is_none() {
+                    let mut wi = 0usize;
+                    for midi in self.range.start..=self.range.end {
+                        if NoteName::from_semitone(midi).is_sharp() {
+                            continue;
                         }
+                        let r = Rect::from_min_size(
+                            pos2(origin.x + wi as f32 * white_w, origin.y),
+                            Vec2::new(white_w, WHITE_HEIGHT),
+                        );
+                        if r.contains(pos) {
+                            clicked = Some(midi);
+                            break;
+                        }
+                        wi += 1;
                     }
                 }
             }
         }
 
-        for octave in 0..self.num_octaves {
-            let base = self.start_note + (octave * 12) as u8;
-            for (wi, &offset) in WHITE_OFFSETS.iter().enumerate() {
-                let midi = base + offset;
-                let x = origin.x + (octave as f32 * 7.0 + wi as f32) * WHITE_WIDTH;
-                let rect = Rect::from_min_size(
-                    pos2(x, origin.y),
-                    Vec2::new(WHITE_WIDTH, WHITE_HEIGHT),
-                );
-
-                let state = self.key_states[midi as usize];
-                let (fill, stroke) = match state {
-                    KeyState::Correct => (
-                        Color32::from_rgb(144, 238, 144),
-                        Stroke::new(2.0, Color32::GREEN),
-                    ),
-                    KeyState::Wrong => (
-                        Color32::from_rgb(255, 160, 160),
-                        Stroke::new(2.0, Color32::RED),
-                    ),
-                    KeyState::Highlight => (
-                        Color32::from_rgb(173, 216, 230),
-                        Stroke::new(1.0, Color32::GRAY),
-                    ),
-                    KeyState::Normal => (Color32::WHITE, Stroke::new(1.0, Color32::GRAY)),
-                };
-
-                painter.rect_filled(rect, 2.0, fill);
-                painter.rect_stroke(rect, 2.0, stroke, StrokeKind::Inside);
-
-                if let Some(label) = midi_to_key_label(midi) {
-                    painter.text(
-                        pos2(rect.center().x, rect.bottom() - 6.0),
-                        egui::Align2::CENTER_BOTTOM,
-                        label,
-                        egui::FontId::proportional(12.0),
-                        Color32::from_gray(120),
-                    );
-                }
+        // draw white keys
+        let mut wi = 0usize;
+        for midi in self.range.start..=self.range.end {
+            if NoteName::from_semitone(midi).is_sharp() {
+                continue;
             }
+            let x = origin.x + wi as f32 * white_w;
+            let rect = Rect::from_min_size(pos2(x, origin.y), Vec2::new(white_w, WHITE_HEIGHT));
+
+            let s = self.key_states[midi as usize];
+            let (fill, stroke) = match s {
+                KeyState::Correct => (
+                    Color32::from_rgb(144, 238, 144),
+                    Stroke::new(2.0, Color32::GREEN),
+                ),
+                KeyState::Wrong => (
+                    Color32::from_rgb(255, 160, 160),
+                    Stroke::new(2.0, Color32::RED),
+                ),
+                KeyState::Highlight => (
+                    Color32::from_rgb(173, 216, 230),
+                    Stroke::new(1.0, Color32::GRAY),
+                ),
+                KeyState::Normal => (Color32::WHITE, Stroke::new(1.0, Color32::GRAY)),
+            };
+
+            painter.rect_filled(rect, 2.0, fill);
+            painter.rect_stroke(rect, 2.0, stroke, StrokeKind::Inside);
+
+            if let Some(lbl) = midi_to_key_label(midi) {
+                painter.text(
+                    pos2(rect.center().x, rect.bottom() - 6.0),
+                    egui::Align2::CENTER_BOTTOM,
+                    lbl,
+                    egui::FontId::proportional(12.0),
+                    Color32::from_gray(120),
+                );
+            }
+            wi += 1;
         }
 
-        for octave in 0..self.num_octaves {
-            let base = self.start_note + (octave * 12) as u8;
-            for (&offset, &cx) in BLACK_OFFSETS.iter().zip(BLACK_CENTERS.iter()) {
-                let midi = base + offset;
-                let x = origin.x
-                    + octave as f32 * 7.0 * WHITE_WIDTH
-                    + cx * WHITE_WIDTH
-                    - BLACK_WIDTH / 2.0;
+        // draw black keys
+        for midi in self.range.start..=self.range.end {
+            if !NoteName::from_semitone(midi).is_sharp() {
+                continue;
+            }
+            if let Some(bx) = self.black_abs_x(midi, white_w) {
                 let rect = Rect::from_min_size(
-                    pos2(x, origin.y),
-                    Vec2::new(BLACK_WIDTH, BLACK_HEIGHT),
+                    pos2(bx, origin.y),
+                    Vec2::new(black_w, black_h),
                 );
-
-                let state = self.key_states[midi as usize];
-                let (fill, stroke) = match state {
+                let s = self.key_states[midi as usize];
+                let (fill, stroke) = match s {
                     KeyState::Correct => (
                         Color32::from_rgb(80, 180, 80),
                         Stroke::new(2.0, Color32::GREEN),
@@ -182,22 +209,44 @@ impl PianoKeyboard {
                         Stroke::new(1.0, Color32::DARK_GRAY),
                     ),
                 };
-
                 painter.rect_filled(rect, 2.0, fill);
                 painter.rect_stroke(rect, 2.0, stroke, StrokeKind::Inside);
 
-                if let Some(label) = midi_to_key_label(midi) {
+                if let Some(lbl) = midi_to_key_label(midi) {
                     painter.text(
                         pos2(rect.center().x, rect.top() + 10.0),
                         egui::Align2::CENTER_CENTER,
-                        label,
-                        egui::FontId::proportional(10.0),
+                        lbl,
+                        egui::FontId::proportional(white_w.max(9.0).min(12.0)),
                         Color32::from_gray(180),
                     );
                 }
             }
         }
 
-        clicked_note
+        clicked
+    }
+
+    fn black_abs_x(&self, midi: u8, white_w: f32) -> Option<f32> {
+        let semitone = midi % 12;
+        let cde_block = 3.0 * white_w / 5.0;
+        let fgab_block = 4.0 * white_w / 7.0;
+
+        let offset_from_prev = match semitone {
+            1 => Some(1.0 * cde_block),
+            3 => Some(3.0 * cde_block - white_w),
+            6 => Some(1.0 * fgab_block),
+            8 => Some(3.0 * fgab_block - white_w),
+            10 => Some(5.0 * fgab_block - 2.0 * white_w),
+            _ => None,
+        }?;
+
+        let mut wi = 0i32;
+        for m in self.range.start..midi {
+            if !NoteName::from_semitone(m).is_sharp() {
+                wi += 1;
+            }
+        }
+        Some(wi as f32 * white_w + offset_from_prev)
     }
 }

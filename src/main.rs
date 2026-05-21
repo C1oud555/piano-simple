@@ -1,6 +1,8 @@
 mod app;
+mod audio;
 mod exercises;
 mod input;
+mod songs;
 mod theory;
 mod ui;
 
