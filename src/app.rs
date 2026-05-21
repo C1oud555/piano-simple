@@ -26,3 +26,10 @@ impl eframe::App for PianoApp {
         });
     }
 }
+
+pub fn setup_visuals(ctx: &egui::Context) {
+    let mut visuals = egui::Visuals::light();
+    visuals.panel_fill = egui::Color32::from_rgb(248, 244, 236);
+    visuals.window_fill = egui::Color32::from_rgb(255, 252, 245);
+    ctx.set_visuals(visuals);
+}

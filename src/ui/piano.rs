@@ -1,10 +1,9 @@
 use egui::{self, Color32, Rect, Sense, Stroke, StrokeKind, Vec2, pos2};
-use crate::theory::note::NoteName;
 
 const WHITE_WIDTH: f32 = 40.0;
-const WHITE_HEIGHT: f32 = 160.0;
+const WHITE_HEIGHT: f32 = 130.0;
 const BLACK_WIDTH: f32 = 26.0;
-const BLACK_HEIGHT: f32 = 100.0;
+const BLACK_HEIGHT: f32 = 80.0;
 
 const WHITE_OFFSETS: [u8; 7] = [0, 2, 4, 5, 7, 9, 11];
 const BLACK_OFFSETS: [u8; 5] = [1, 3, 6, 8, 10];
@@ -22,6 +21,20 @@ pub struct PianoKeyboard {
     pub start_note: u8,
     pub num_octaves: usize,
     key_states: [KeyState; 128],
+}
+
+fn midi_to_key_label(midi: u8) -> Option<&'static str> {
+    match midi {
+        48 => Some("Z"), 49 => Some("S"), 50 => Some("X"), 51 => Some("D"),
+        52 => Some("C"), 53 => Some("V"), 54 => Some("G"), 55 => Some("B"),
+        56 => Some("H"), 57 => Some("N"), 58 => Some("J"), 59 => Some("M"),
+        60 => Some("Q"), 61 => Some("2"), 62 => Some("W"), 63 => Some("3"),
+        64 => Some("E"), 65 => Some("R"), 66 => Some("5"), 67 => Some("T"),
+        68 => Some("6"), 69 => Some("Y"), 70 => Some("7"), 71 => Some("U"),
+        72 => Some("I"), 73 => Some("9"), 74 => Some("O"), 75 => Some("0"),
+        76 => Some("P"),
+        _ => None,
+    }
 }
 
 impl PianoKeyboard {
@@ -55,7 +68,7 @@ impl PianoKeyboard {
 
         if response.clicked() {
             if let Some(pos) = response.interact_pointer_pos() {
-                for octave in 0..self.num_octaves {
+                'black: for octave in 0..self.num_octaves {
                     let base = self.start_note + (octave * 12) as u8;
                     for (&offset, &cx) in BLACK_OFFSETS.iter().zip(BLACK_CENTERS.iter()) {
                         let midi = base + offset;
@@ -63,29 +76,31 @@ impl PianoKeyboard {
                             + octave as f32 * 7.0 * WHITE_WIDTH
                             + cx * WHITE_WIDTH
                             - BLACK_WIDTH / 2.0;
-                        let rect = Rect::from_min_size(
+                        let key_rect = Rect::from_min_size(
                             pos2(kx, origin.y),
                             Vec2::new(BLACK_WIDTH, BLACK_HEIGHT),
                         );
-                        if rect.contains(pos) {
+                        if key_rect.contains(pos) {
                             clicked_note = Some(midi);
+                            break 'black;
                         }
                     }
                 }
 
                 if clicked_note.is_none() {
-                    for octave in 0..self.num_octaves {
+                    'white: for octave in 0..self.num_octaves {
                         let base = self.start_note + (octave * 12) as u8;
                         for (wi, &offset) in WHITE_OFFSETS.iter().enumerate() {
                             let midi = base + offset;
                             let kx = origin.x
                                 + (octave as f32 * 7.0 + wi as f32) * WHITE_WIDTH;
-                            let rect = Rect::from_min_size(
+                            let key_rect = Rect::from_min_size(
                                 pos2(kx, origin.y),
                                 Vec2::new(WHITE_WIDTH, WHITE_HEIGHT),
                             );
-                            if rect.contains(pos) {
+                            if key_rect.contains(pos) {
                                 clicked_note = Some(midi);
+                                break 'white;
                             }
                         }
                     }
@@ -117,14 +132,21 @@ impl PianoKeyboard {
                         Color32::from_rgb(173, 216, 230),
                         Stroke::new(1.0, Color32::GRAY),
                     ),
-                    KeyState::Normal => (
-                        Color32::WHITE,
-                        Stroke::new(1.0, Color32::GRAY),
-                    ),
+                    KeyState::Normal => (Color32::WHITE, Stroke::new(1.0, Color32::GRAY)),
                 };
 
                 painter.rect_filled(rect, 2.0, fill);
                 painter.rect_stroke(rect, 2.0, stroke, StrokeKind::Inside);
+
+                if let Some(label) = midi_to_key_label(midi) {
+                    painter.text(
+                        pos2(rect.center().x, rect.bottom() - 6.0),
+                        egui::Align2::CENTER_BOTTOM,
+                        label,
+                        egui::FontId::proportional(12.0),
+                        Color32::from_gray(120),
+                    );
+                }
             }
         }
 
@@ -163,34 +185,19 @@ impl PianoKeyboard {
 
                 painter.rect_filled(rect, 2.0, fill);
                 painter.rect_stroke(rect, 2.0, stroke, StrokeKind::Inside);
-            }
-        }
 
-        self.draw_labels(&painter, origin);
-
-        clicked_note
-    }
-
-    fn draw_labels(&self, painter: &egui::Painter, origin: egui::Pos2) {
-        let label_notes = [NoteName::C, NoteName::F];
-        for octave in 0..self.num_octaves {
-            let base = self.start_note + (octave * 12) as u8;
-            for (wi, &offset) in WHITE_OFFSETS.iter().enumerate() {
-                let midi = base + offset;
-                let name = NoteName::from_semitone(midi);
-                if label_notes.contains(&name) {
-                    let x = origin.x + (octave as f32 * 7.0 + wi as f32) * WHITE_WIDTH;
-                    let cx = x + WHITE_WIDTH / 2.0;
-                    let cy = origin.y + WHITE_HEIGHT - 16.0;
+                if let Some(label) = midi_to_key_label(midi) {
                     painter.text(
-                        pos2(cx, cy),
-                        egui::Align2::CENTER_BOTTOM,
-                        name.to_str(),
-                        egui::FontId::proportional(14.0),
-                        Color32::GRAY,
+                        pos2(rect.center().x, rect.top() + 10.0),
+                        egui::Align2::CENTER_CENTER,
+                        label,
+                        egui::FontId::proportional(10.0),
+                        Color32::from_gray(180),
                     );
                 }
             }
         }
+
+        clicked_note
     }
 }
